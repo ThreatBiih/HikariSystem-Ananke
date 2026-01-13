@@ -16,9 +16,9 @@ import (
 	"github.com/fatih/color"
 	"github.com/spf13/cobra"
 
-	"github.com/hikarisystem/ananke/pkg/idor"
-	"github.com/hikarisystem/ananke/pkg/race"
-	"github.com/hikarisystem/ananke/pkg/ui"
+	"github.com/ThreatBiih/HikariSystem-Ananke/pkg/idor"
+	"github.com/ThreatBiih/HikariSystem-Ananke/pkg/race"
+	"github.com/ThreatBiih/HikariSystem-Ananke/pkg/ui"
 )
 
 var version = "0.1.0"
@@ -79,6 +79,9 @@ func idorCmd() *cobra.Command {
 		paramName   string
 		compareAuth string
 		strict      bool
+		uuidMode    string
+		uuidCount   int
+		baseUUID    string
 	)
 
 	cmd := &cobra.Command{
@@ -90,7 +93,9 @@ The URL should contain a placeholder {id} that will be fuzzed.
 
 Examples:
   ananke idor "https://api.target.com/users/{id}" --range 1-1000
-  ananke idor "https://api.target.com/orders/{id}" -H "Bearer TOKEN" --range 1-100 --strict`,
+  ananke idor "https://api.target.com/orders/{id}" -H "Bearer TOKEN" --range 1-100 --strict
+  ananke idor "https://api.target.com/users/{id}" --uuid random --uuid-count 100
+  ananke idor "https://api.target.com/data/{id}" --uuid sequential --uuid-count 50 -o results.json`,
 		Args: cobra.ExactArgs(1),
 		Run: func(cmd *cobra.Command, args []string) {
 			printBanner()
@@ -98,10 +103,28 @@ Examples:
 
 			color.Green("[*] IDOR SCANNER")
 			color.White("    Target: %s", targetURL)
-			color.White("    Range: %s", idRange)
 			color.White("    Threads: %d", threads)
+
+			// Determine ID source
+			var wordlist []string
+			if uuidMode != "" {
+				color.Cyan("    UUID Mode: %s (count: %d)", uuidMode, uuidCount)
+				uuids, err := idor.GenerateUUIDs(uuidMode, uuidCount, baseUUID)
+				if err != nil {
+					color.Red("[!] Error generating UUIDs: %v", err)
+					os.Exit(1)
+				}
+				wordlist = uuids
+				idRange = "" // Clear range when using UUIDs
+			} else {
+				color.White("    Range: %s", idRange)
+			}
+
 			if strict {
 				color.Yellow("    Mode: STRICT (only sensitive data)")
+			}
+			if outputFile != "" {
+				color.Cyan("    Output: %s", outputFile)
 			}
 			fmt.Println()
 
@@ -109,13 +132,17 @@ Examples:
 			cfg := &idor.Config{
 				URL:         targetURL,
 				IDRange:     idRange,
+				UUIDMode:    uuidMode,
+				UUIDCount:   uuidCount,
 				ParamName:   paramName,
 				CompareAuth: compareAuth,
+				Wordlist:    wordlist,
 				Threads:     threads,
 				Verbose:     verbose,
 				Strict:      strict,
 				AuthHeader:  authHeader,
 				Cookie:      cookie,
+				OutputFile:  outputFile,
 			}
 
 			// Create and run scanner
@@ -154,6 +181,13 @@ Examples:
 			if high == 0 && medium == 0 && low == 0 {
 				color.Green("[+] No IDOR vulnerabilities detected")
 			}
+
+			// Save JSON output if requested
+			if outputFile != "" {
+				if err := idor.SaveJSON(outputFile, results, targetURL); err != nil {
+					color.Red("[!] Failed to save results: %v", err)
+				}
+			}
 		},
 	}
 
@@ -161,6 +195,11 @@ Examples:
 	cmd.Flags().StringVarP(&paramName, "param", "p", "id", "Parameter name to fuzz")
 	cmd.Flags().StringVar(&compareAuth, "compare", "", "Second auth token for comparison")
 	cmd.Flags().BoolVar(&strict, "strict", false, "Only report HIGH confidence findings with sensitive data")
+
+	// UUID flags
+	cmd.Flags().StringVar(&uuidMode, "uuid", "", "UUID mode: random, increment, sequential")
+	cmd.Flags().IntVar(&uuidCount, "uuid-count", 100, "Number of UUIDs to generate")
+	cmd.Flags().StringVar(&baseUUID, "base-uuid", "", "Base UUID for increment mode")
 
 	return cmd
 }
