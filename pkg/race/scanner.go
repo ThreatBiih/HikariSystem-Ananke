@@ -10,27 +10,27 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/ThreatBiih/HikariSystem-Ananke/pkg/http"
 	"github.com/fatih/color"
-	"github.com/hikarisystem/ananke/pkg/http"
 )
 
 // Scanner performs race condition testing
 type Scanner struct {
-	client   *http.Client
-	threads  int
-	delay    time.Duration
-	verbose  bool
+	client  *http.Client
+	threads int
+	delay   time.Duration
+	verbose bool
 }
 
 // Result holds race condition test results
 type Result struct {
-	TotalRequests    int
-	SuccessCount     int32
-	UniqueResponses  int
-	ResponseCodes    map[int]int
-	TimingStats      TimingStats
-	PotentialRace    bool
-	Evidence         string
+	TotalRequests   int
+	SuccessCount    int32
+	UniqueResponses int
+	ResponseCodes   map[int]int
+	TimingStats     TimingStats
+	PotentialRace   bool
+	Evidence        string
 }
 
 // TimingStats holds timing information
@@ -94,7 +94,7 @@ func (s *Scanner) Scan(cfg *Config) (*Result, error) {
 	// Barrier for synchronized start
 	var ready sync.WaitGroup
 	ready.Add(cfg.Threads)
-	
+
 	var start sync.WaitGroup
 	start.Add(1)
 
@@ -105,10 +105,10 @@ func (s *Scanner) Scan(cfg *Config) (*Result, error) {
 	for i := 0; i < cfg.Threads; i++ {
 		go func(idx int) {
 			defer done.Done()
-			
+
 			// Signal ready
 			ready.Done()
-			
+
 			// Wait for synchronized start
 			start.Wait()
 
@@ -217,7 +217,7 @@ func (s *Scanner) analyzeResponses(responses []*http.Response, durations []time.
 // printResults displays scan results
 func (s *Scanner) printResults(result *Result, totalTime time.Duration) {
 	fmt.Println()
-	
+
 	if result.PotentialRace {
 		color.Red("╔═══════════════════════════════════════════════════╗")
 		color.Red("║         🔥 POTENTIAL RACE CONDITION! 🔥            ║")
