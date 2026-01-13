@@ -7,15 +7,18 @@ package idor
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ThreatBiih/HikariSystem-Ananke/pkg/http"
 	"github.com/fatih/color"
-	"github.com/hikarisystem/ananke/pkg/http"
+	"github.com/google/uuid"
 )
 
 // Sensitive data patterns for IDOR detection
@@ -67,29 +70,31 @@ type Scanner struct {
 
 // Result represents a potential IDOR finding
 type Result struct {
-	URL           string
-	OriginalID    string
-	FuzzedID      string
-	StatusCode    int
-	BodyLength    int
-	Different     bool
-	Interesting   bool
-	SensitiveData []SensitiveMatch
-	Confidence    string // HIGH, MEDIUM, LOW
-	Duration      time.Duration
+	URL           string           `json:"url"`
+	OriginalID    string           `json:"original_id,omitempty"`
+	FuzzedID      string           `json:"fuzzed_id"`
+	StatusCode    int              `json:"status_code"`
+	BodyLength    int              `json:"body_length"`
+	Different     bool             `json:"different"`
+	Interesting   bool             `json:"interesting"`
+	SensitiveData []SensitiveMatch `json:"sensitive_data,omitempty"`
+	Confidence    string           `json:"confidence,omitempty"`
+	Duration      time.Duration    `json:"duration_ns"`
 }
 
 // SensitiveMatch holds info about detected sensitive data
 type SensitiveMatch struct {
-	Type    string
-	Pattern string
-	Sample  string // Redacted sample
+	Type    string `json:"type"`
+	Pattern string `json:"pattern"`
+	Sample  string `json:"sample"`
 }
 
 // Config holds scanner configuration
 type Config struct {
 	URL         string
 	IDRange     string   // e.g., "1-1000"
+	UUIDMode    string   // "random", "increment", "file"
+	UUIDCount   int      // Number of UUIDs to generate
 	ParamName   string   // e.g., "id"
 	CompareAuth string   // Second auth token for comparison
 	Wordlist    []string // Custom ID wordlist
@@ -98,6 +103,7 @@ type Config struct {
 	Strict      bool // Only report real IDOR with sensitive data
 	AuthHeader  string
 	Cookie      string
+	OutputFile  string // JSON output file
 }
 
 // NewScanner creates a new IDOR scanner
@@ -406,4 +412,108 @@ func max(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// GenerateUUIDs generates UUIDs based on mode
+func GenerateUUIDs(mode string, count int, baseUUID string) ([]string, error) {
+	var uuids []string
+
+	switch mode {
+	case "random":
+		// Generate random UUIDs (v4)
+		for i := 0; i < count; i++ {
+			uuids = append(uuids, uuid.New().String())
+		}
+
+	case "increment":
+		// Increment last segment of UUID
+		if baseUUID == "" {
+			baseUUID = "00000000-0000-0000-0000-000000000001"
+		}
+		base, err := uuid.Parse(baseUUID)
+		if err != nil {
+			return nil, fmt.Errorf("invalid base UUID: %w", err)
+		}
+
+		bytes := base[:]
+		for i := 0; i < count; i++ {
+			uuids = append(uuids, uuid.UUID(bytes).String())
+			// Increment last byte
+			for j := 15; j >= 0; j-- {
+				bytes[j]++
+				if bytes[j] != 0 {
+					break
+				}
+			}
+		}
+
+	case "sequential":
+		// Simple sequential UUIDs with incrementing suffix
+		for i := 1; i <= count; i++ {
+			uuids = append(uuids, fmt.Sprintf("00000000-0000-0000-0000-%012d", i))
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown UUID mode: %s (use: random, increment, sequential)", mode)
+	}
+
+	return uuids, nil
+}
+
+// ScanReport contains full scan results for JSON/HTML export
+type ScanReport struct {
+	Target      string    `json:"target"`
+	ScanType    string    `json:"scan_type"`
+	StartTime   time.Time `json:"start_time"`
+	EndTime     time.Time `json:"end_time"`
+	TotalTests  int       `json:"total_tests"`
+	Findings    []Result  `json:"findings"`
+	HighCount   int       `json:"high_count"`
+	MediumCount int       `json:"medium_count"`
+	LowCount    int       `json:"low_count"`
+}
+
+// SaveJSON saves results to a JSON file
+func SaveJSON(filename string, results []Result, target string) error {
+	// Filter only interesting results
+	var findings []Result
+	var high, medium, low int
+
+	for _, r := range results {
+		if r.Interesting {
+			findings = append(findings, r)
+			switch r.Confidence {
+			case "HIGH":
+				high++
+			case "MEDIUM":
+				medium++
+			case "LOW":
+				low++
+			}
+		}
+	}
+
+	report := ScanReport{
+		Target:      target,
+		ScanType:    "IDOR",
+		StartTime:   time.Now(),
+		EndTime:     time.Now(),
+		TotalTests:  len(results),
+		Findings:    findings,
+		HighCount:   high,
+		MediumCount: medium,
+		LowCount:    low,
+	}
+
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	if err := os.WriteFile(filename, data, 0644); err != nil {
+		return fmt.Errorf("failed to write file: %w", err)
+	}
+
+	color.Green("[+] Results saved to: %s", filename)
+	return nil
 }
