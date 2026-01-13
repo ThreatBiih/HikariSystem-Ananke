@@ -7,9 +7,10 @@
 ## Installation
 
 ```bash
-cd HikariSystem\ Ananke
+git clone https://github.com/ThreatBiih/HikariSystem-Ananke.git
+cd HikariSystem-Ananke
 go mod tidy
-go build -o ananke.exe ./cmd/ananke
+go build -o ananke ./cmd/ananke
 ```
 
 ## Usage
@@ -32,6 +33,18 @@ go build -o ananke.exe ./cmd/ananke
 ./ananke race "https://api.target.com/transfer" -X POST -d '{"amount":100}' --threads 50
 ```
 
+### UUID Fuzzing (NEW!)
+```bash
+# Random UUIDs
+./ananke idor "https://api.target.com/users/{id}" --uuid random --uuid-count 100
+
+# Sequential UUIDs
+./ananke idor "https://api.target.com/data/{id}" --uuid sequential --uuid-count 50
+
+# With JSON output
+./ananke idor "https://api.target.com/orders/{id}" --uuid random -o results.json
+```
+
 ## Features
 
 - [x] High-performance HTTP client (fasthttp)
@@ -39,8 +52,8 @@ go build -o ananke.exe ./cmd/ananke
 - [x] Response diffing
 - [x] Race condition with goroutine synchronization
 - [x] Precise timing control
-- [ ] UUID manipulation
-- [ ] JSON output
+- [x] **UUID manipulation** (random, increment, sequential)
+- [x] **JSON output** (scan reports)
 - [ ] HTML reports
 
 ## HikariSystem Security Tools
